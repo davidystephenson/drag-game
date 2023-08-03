@@ -9,7 +9,6 @@ import {
   DragOverlay
 } from '@dnd-kit/core'
 import {
-  arrayMove,
   SortableContext
 } from '@dnd-kit/sortable'
 import Draggable from './Draggable'

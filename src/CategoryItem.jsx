@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import ReactCrop from 'react-image-crop'; 
+import { canvasPreview } from "./canvasPreview";
+import { useDebounceEffect } from "./useDebounceEffect";
+import centerAspectCrop from "./centerAspectCrop";
 export default function CategoryItem ({ item, itemIndex, categories, categoryIndex, setCategories }) {
-  const [crop, setCrop] = useState({ aspect: 16 / 9 });
-  const [image, setImage] = useState(null);
   function handleItemChange (property, value) {
     setCategories(categories.map((category, currentCategoryIndex) => {
       if (currentCategoryIndex === categoryIndex) {
@@ -26,44 +27,67 @@ export default function CategoryItem ({ item, itemIndex, categories, categoryInd
   function handleItemTextChange (event) {
     handleItemChange('text', event.target.value)
   }
-  function handleItemImageChange (event) {
-    const file = event.target.files[0]
-    const fileReader = new FileReader();
-    fileReader.readAsDataURL(file)
-    fileReader.onload = () => {
-      handleItemChange('image', fileReader.result);
+  function handleItemImageChange (url) {
+    handleItemChange('image', url);
+  }
+  const previewCanvasRef = useRef(null)
+  const imgRef = useRef(null)
+  const [crop, setCrop] = useState()
+  const [completedCrop, setCompletedCrop] = useState()
+
+  function onSelectFile(e) {
+    if (e.target.files && e.target.files.length > 0) {
+      setCrop(undefined)
+      const reader = new FileReader()
+      reader.addEventListener('load', () =>
+        handleItemImageChange(reader.result?.toString() || ''),
+      )
+      reader.readAsDataURL(e.target.files[0])
     }
   }
-  // function handleCrop () {
-  //   const canvas = document.createElement('canvas');
-  //   const scaleX = image.naturalWidth / image.width;
-  //   const scaleY = image.naturalHeight / image.height;
-  //   canvas.width = crop.width;
-  //   canvas.height = crop.height;
-  //   const ctx = canvas.getContext('2d');
 
-  //   const pixelRatio = window.devicePixelRatio;
-  //   canvas.width = crop.width * pixelRatio;
-  //   canvas.height = crop.height * pixelRatio;
-  //   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  //   ctx.imageSmoothingQuality = 'high';
+  function onImageLoad(e) {
+    const { width, height } = e.currentTarget
+    setCrop(centerAspectCrop(width, height, 1))
+  }
 
-  //   ctx.drawImage(
-  //       image,
-  //       crop.x * scaleX,
-  //       crop.y * scaleY,
-  //       crop.width * scaleX,
-  //       crop.height * scaleY,
-  //       0,
-  //       0,
-  //       crop.width,
-  //       crop.height,
-  //   );
+  function handleCrop() {
+    if (!previewCanvasRef.current) {
+      throw new Error('Crop canvas does not exist')
+    }
 
-  //   const base64Image = canvas.toDataURL('image/jpeg')
-  //   handleItemChange('image', base64Image)
-  // };
-  console.log('item.image', item.image)
+    previewCanvasRef.current.toBlob((blob) => {
+      if (!blob) {
+        throw new Error('Failed to create blob')
+      }
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = function () {
+        handleItemImageChange(reader.result?.toString() || '')
+        setCrop(undefined)
+      }
+    })
+  }
+
+  useDebounceEffect(
+    async () => {
+      if (
+        completedCrop?.width &&
+        completedCrop?.height &&
+        imgRef.current &&
+        previewCanvasRef.current
+      ) {
+        // We use canvasPreview as it's much faster than imgPreview.
+        canvasPreview(
+          imgRef.current,
+          previewCanvasRef.current,
+          completedCrop,
+        )
+      }
+    },
+    100,
+    [completedCrop],
+  )
   return (
     <li key={itemIndex}>
       <div style={{ display: 'flex', justifyContent: 'space-between'}}>
@@ -75,21 +99,40 @@ export default function CategoryItem ({ item, itemIndex, categories, categoryInd
         />
         <div>
           <div>
-            <input
-              style={{ height: 'fit-content' }}
-              type='file'
-              placeholder='Item image'
-              onChange={handleItemImageChange}
-            />
+            <input type="file" accept="image/*" onChange={onSelectFile} />
           </div>
-          <ReactCrop
-            src={item.image}
-            onImageLoaded={setImage}
-            crop={crop}
-            onChange={setCrop}
-          />
-
-          {/* <img src={item.image} alt={item.text} width='200' /> */}
+          {item.image && (
+            <ReactCrop
+              crop={crop}
+              onChange={(_, percentCrop) => setCrop(percentCrop)}
+              onComplete={(c) => setCompletedCrop(c)}
+            >
+              <img
+                ref={imgRef}
+                alt="Crop me"
+                src={item.image}
+                onLoad={onImageLoad}
+              />
+            </ReactCrop>
+          )}
+          {completedCrop && (
+            <>
+              <div>
+                <canvas
+                  ref={previewCanvasRef}
+                  style={{
+                    border: '1px solid black',
+                    objectFit: 'contain',
+                    width: completedCrop.width,
+                    height: completedCrop.height,
+                  }}
+                />
+              </div>
+              <div>
+                <button onClick={handleCrop}>Crop</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </li>
